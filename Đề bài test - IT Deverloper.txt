@@ -1,0 +1,109 @@
+﻿Đề bài: Xây dựng ứng dụng quản lý hồ sơ ứng viên 
+1. Yêu cầu chung
+* Ứng viên sẽ xây dựng một ứng dụng web nhỏ cho phép người dùng (tưởng tượng là nhân viên HR) đăng ký, đăng nhập và quản lý danh sách hồ sơ ứng viên.
+* Ứng dụng phải sử dụng toàn bộ stack công nghệ đã nêu:
+   * Frontend: React + TypeScript (có thể dùng Vite).
+   * Backend & Database: Supabase (bắt buộc sử dụng các tính năng Auth, Database, Edge Functions, Storage và Realtime).
+* Ứng viên cần nộp một liên kết tới repository công khai (public) trên GitHub. Lịch sử commit rõ ràng, sạch sẽ là một điểm cộng.
+
+* Khi hoàn thành, vui lòng gửi link repository GitHub và Project URL + anon key của dự án Supabase để chúng tôi có thể kiểm tra.
+* Bài test này được thiết kế để hoàn thành trong khoảng 4-8 giờ làm việc. Bạn có thể tự sắp xếp thời gian để nộp bài trong vòng 1-2 ngày kể từ khi nhận được đề.
+________________
+
+
+2. Chi tiết yêu cầu kỹ thuật
+Phần 1: Backend & Database (Supabase):
+   * Thiết lập dự án: Tạo một dự án mới trên Supabase và lấy các khóa API cần thiết.
+   * Cơ sở dữ liệu (PostgreSQL):
+   * Tạo bảng candidates với các cột tối thiểu sau:
+   * id (UUID, khóa chính)
+   * user_id (UUID, khóa ngoại liên kết với auth.users)
+   * full_name (TEXT)
+   * applied_position (TEXT)
+   * status (TEXT, ví dụ: 'New', 'Interviewing', 'Hired')
+   * resume_url (TEXT, để lưu URL của CV/hồ sơ)
+   * created_at (timestamp, tự động)
+   * Thiết lập Row-Level Security (RLS) để đảm bảo rằng người dùng chỉ có thể xem, thêm, cập nhật và xóa các hồ sơ ứng viên do chính họ quản lý.
+   * Bắt buộc:Yêu cầu nộp kèm SQL: Ứng viên phải cung cấp các file migration hoặc một file schema.sql nằm trong thư mục supabase/migrations/. File này phải bao gồm: Cấu trúc bảng, RLS. Toàn bộ code xử lý logic tại Edge Functions phải được nộp trong thư mục supabase/functions/[tên-function]/.
+   * Edge Functions (Bắt buộc):
+   * Viết một Edge Function để xử lý logic thêm hồ sơ ứng viên mới. Chức năng này sẽ nhận dữ liệu từ frontend, kiểm tra tính hợp lệ của dữ liệu, và tạo một bản ghi mới trong bảng candidates.
+   * Storage (Bắt buộc):
+   * Tạo một bucket trong Supabase Storage (ví dụ: resumes).
+   * Khi người dùng thêm hồ sơ ứng viên, họ phải tải lên file CV/hồ sơ (ví dụ: PDF). Ứng viên phải sử dụng Supabase Storage để lưu trữ file này và trả về một public URL để lưu vào cột resume_url trong bảng candidates.
+________________
+
+
+Phần 2: Frontend (React)
+   * Lưu ý: Giao diện frontend không cần quá cầu kỳ. Chỉ cần đảm bảo các chức năng hoạt động đúng và thể hiện được cách bạn kết nối với Supabase.
+   * Cài đặt: Khởi tạo một dự án React + TypeScript mới.
+   * Các trang/component cần có:
+   * Trang Đăng nhập & Đăng ký: Sử dụng Supabase Auth để xử lý quá trình xác thực.
+   * Dashboard (Trang chính):
+   * Hiển thị danh sách tất cả các hồ sơ ứng viên, bao gồm tên, vị trí ứng tuyển, trạng thái và một liên kết đến file CV.
+   * Có form để thêm hồ sơ ứng viên mới, bao gồm input file để tải lên CV/hồ sơ.
+   * Có nút để cập nhật trạng thái của ứng viên (ví dụ: 'New' -> 'Interviewing').
+   * Sử dụng Supabase (Bắt buộc):
+   * Tương tác với Supabase Storage để tải lên file CV.
+   * Gọi Edge Function đã tạo ở phần backend để thêm hồ sơ ứng viên vào database.
+   * Sử dụng tính năng Realtime: Bắt buộc phải triển khai tính năng cập nhật theo thời gian thực.
+________________
+
+
+Phần 3: Tư duy thuật toán (bắt buộc thực hiện ít nhất 1 trong các yêu cầu sau):
+1. Thêm phần xử lý lọc, sắp xếp, tìm kiếm phức tạp (Frontend hoặc Edge Function)
+Yêu cầu:
+   * Cho phép HR lọc ứng viên theo nhiều tiêu chí cùng lúc:
+
+      * Tên, vị trí, trạng thái, ngày nộp hồ sơ (range date).
+
+         * Kết hợp full-text search + filter logic + sort thông minh (theo mức độ “gần đúng” với từ khóa).
+
+         * Ưu tiên viết bằng thuật toán client-side (nếu Supabase chưa hỗ trợ FTS), hoặc tạo Edge Function trả kết quả đã sắp xếp.
+
+2. Tạo Edge Function tính thống kê / tổng hợp dữ liệu
+Yêu cầu:
+            * Viết Edge Function /analytics trả về:
+
+               * Tổng số ứng viên.
+
+               * Tỷ lệ từng trạng thái.
+
+               * Top 3 vị trí có nhiều ứng viên nhất.
+
+               * Ứng viên mới nhất trong 7 ngày.
+3. Tích hợp thuật toán upload song song (Concurrency)
+Yêu cầu nâng cao cho phần upload CV:
+                  * Khi user thêm nhiều hồ sơ ứng viên, ứng dụng phải upload song song nhiều file (3–5 file) mà không treo UI.
+
+                  * Hạn chế: chỉ được upload tối đa N file cùng lúc (thử thách concurrency).
+4. Thêm bài toán phân trang / lazy loading có thuật toán
+Yêu cầu:
+                     * Implement phân trang server-side với thuật toán:
+
+                        * Cursor-based pagination (dựa trên created_at hoặc id), không dùng offset limit đơn giản.
+
+                        * Khi load thêm dữ liệu, phải duy trì danh sách cũ ổn định, không duplicate, không thiếu.
+5. Yêu cầu viết thuật toán sắp xếp theo mức độ phù hợp (matching score)
+Bổ sung bảng job_requirements và yêu cầu:
+                           * Khi thêm ứng viên, Edge Function tính điểm phù hợp giữa ứng viên và vị trí tuyển (matching score).
+
+Giả sử mỗi ứng viên có các “skills” dạng JSON:
+
+                        ["React", "TypeScript", "Node"]
+ Và job có các yêu cầu:
+
+                         ["React", "Next.js", "SQL"]
+                              * Edge Function phải tính:
+
+score = (số kỹ năng trùng / tổng kỹ năng yêu cầu) * 100
+6. Viết hàm gợi ý (Recommendation Algorithm)
+Thêm một feature bonus (tùy chọn để phân hạng ứng viên):
+“Hãy viết Edge Function /recommend gợi ý 3 ứng viên tiềm năng nhất cho một vị trí, dựa trên mức độ tương đồng kỹ năng.”
+________________
+
+
+3. Tiêu chí đánh giá
+                                 * Sử dụng Supabase hiệu quả: Khả năng kết nối và sử dụng thành thạo tất cả các tính năng Auth, Database, Edge Functions, Storage và Realtime.
+                                 * Bảo mật: Cách ứng viên xử lý RLS để đảm bảo dữ liệu riêng tư và cấu hình quyền truy cập cho Storage.
+                                 * Tích hợp: Khả năng kết nối và luân chuyển dữ liệu giữa frontend, Edge Function và database một cách logic.
+                                 * Code Quality: Mã nguồn sạch, dễ đọc và tuân thủ các nguyên tắc lập trình cơ bản và đánh giá khả năng viết thuật toán hiệu quả.
