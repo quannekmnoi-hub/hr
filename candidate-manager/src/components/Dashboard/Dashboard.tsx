@@ -1,90 +1,92 @@
-import { useState, useEffect, useCallback } from 'react'
 import type { User } from '@supabase/supabase-js'
-import Header from './Header'
-import StatsPanel from './StatsPanel'
-import FilterBar from './FilterBar'
-import CandidateList from './CandidateList'
+
+import Sidebar from '../Layout/Sidebar'
+import Header from '../Layout/Header'
+
+import CandidatesPage from './CandidatesPage'
+import CandidateDetail from './CandidateDetail'
 import AddCandidateModal from './AddCandidateModal'
-import { useCandidates } from '../../hooks/useCandidates'
-import { useRealtime } from '../../hooks/useRealtime'
-import { useAnalytics } from '../../hooks/useAnalytics'
 
-interface Props { user: User }
+import JobsPage from '../Jobs/JobsPage'
+import PostJobModal from '../Jobs/PostJobModal'
+import JobDetail from '../Jobs/JobDetail'
 
-export default function Dashboard({ user }: Props) {
-  const [showAddModal, setShowAddModal] = useState(false)
-  const [realtimeActive, setRealtimeActive] = useState(false)
+import {
+  buildCandidateDetailPath,
+  buildJobDetailPath,
+  CANDIDATES_PATH,
+  CANDIDATE_NEW_PATH,
+  getActiveSection,
+  JOBS_PATH,
+  JOB_NEW_PATH,
+  navigate,
+  type AppRoute,
+} from '../../lib/router'
 
-  const {
-    candidates, allCount, filteredCount, loading, hasMore,
-    filter, setFilter, fetchCandidates, loadMore, updateStatus, deleteCandidate,
-  } = useCandidates(user.id)
+interface Props {
+  user: User
+  route: AppRoute
+}
 
-  const { analytics, loading: analyticsLoading, fetchAnalytics } = useAnalytics()
-
-  // Initial fetch
-  useEffect(() => {
-    fetchCandidates()
-    fetchAnalytics()
-  }, [fetchCandidates, fetchAnalytics])
-
-  // Realtime: re-fetch on any change
-  const handleRealtimeUpdate = useCallback(() => {
-    fetchCandidates()
-    fetchAnalytics()
-    setRealtimeActive(true)
-  }, [fetchCandidates, fetchAnalytics])
-
-  useRealtime(user.id, handleRealtimeUpdate)
-
-  // Blink realtime indicator
-  useEffect(() => {
-    if (realtimeActive) {
-      const t = setTimeout(() => setRealtimeActive(false), 3000)
-      return () => clearTimeout(t)
-    }
-  }, [realtimeActive])
-
-  const handleSuccess = useCallback(() => {
-    fetchCandidates()
-    fetchAnalytics()
-  }, [fetchCandidates, fetchAnalytics])
+export default function Dashboard({ user, route }: Props) {
+  const activeSection = getActiveSection(route)
+  const showCandidatesPage = route.kind === 'candidates' || route.kind === 'candidate-new'
+  const showJobsPage = route.kind === 'jobs' || route.kind === 'job-new'
 
   return (
-    <div className="dashboard">
-      <Header user={user} realtimeActive={realtimeActive} />
+    <div className="layout">
+      <Sidebar currentSection={activeSection} onNavigate={navigate} />
+      
+      <main className="main-content">
+        <Header user={user} />
+        
+        <div className="page-container">
+          {showCandidatesPage && (
+            <CandidatesPage 
+              user={user} 
+              onViewDetail={(id) => navigate(buildCandidateDetailPath(id))}
+              onAddCandidate={() => navigate(CANDIDATE_NEW_PATH)}
+            />
+          )}
 
-      <div className="dashboard-content">
-        {/* Stats & Analytics */}
-        <StatsPanel analytics={analytics} loading={analyticsLoading} />
+          {route.kind === 'candidate-detail' && (
+            <CandidateDetail 
+              candidateId={route.candidateId}
+              onBack={() => navigate(CANDIDATES_PATH, { replace: true })}
+            />
+          )}
 
-        {/* Filter + Add */}
-        <FilterBar
-          filter={filter}
-          onChange={setFilter}
-          onAdd={() => setShowAddModal(true)}
+          {showJobsPage && (
+            <JobsPage 
+              onPostJob={() => navigate(JOB_NEW_PATH)}
+              onViewDetail={(id) => navigate(buildJobDetailPath(id))}
+            />
+          )}
+
+          {route.kind === 'job-detail' && (
+            <JobDetail 
+              jobId={route.jobId}
+              onBack={() => navigate(JOBS_PATH, { replace: true })}
+              onViewCandidate={(id) => navigate(buildCandidateDetailPath(id))}
+            />
+          )}
+        </div>
+      </main>
+
+      {route.kind === 'job-new' && (
+        <PostJobModal 
+          user={user} 
+          onClose={() => navigate(JOBS_PATH, { replace: true })}
         />
+      )}
 
-        {/* Candidate List */}
-        <CandidateList
-          candidates={candidates}
-          allCount={allCount}
-          filteredCount={filteredCount}
-          loading={loading}
-          hasMore={hasMore}
-          filter={filter}
-          onLoadMore={loadMore}
-          onUpdateStatus={updateStatus}
-          onDelete={deleteCandidate}
-        />
-      </div>
-
-      {/* Add Modal */}
-      {showAddModal && (
+      {route.kind === 'candidate-new' && (
         <AddCandidateModal
           userId={user.id}
-          onClose={() => setShowAddModal(false)}
-          onSuccess={handleSuccess}
+          onClose={() => navigate(CANDIDATES_PATH, { replace: true })}
+          onSuccess={() => {
+            window.dispatchEvent(new CustomEvent('candidates-updated'))
+          }}
         />
       )}
     </div>

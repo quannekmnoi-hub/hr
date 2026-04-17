@@ -30,7 +30,7 @@ serve(async (req: Request) => {
     // Fetch all candidates for this user
     const { data: candidates, error } = await supabase
       .from("candidates")
-      .select("status, applied_position, created_at")
+      .select("id, full_name, applied_position, status, resume_url, created_at")
       .eq("user_id", user.id);
 
     if (error) throw error;
@@ -62,12 +62,14 @@ serve(async (req: Request) => {
     // --- Recent (last 7 days) ---
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const recentCount = candidates?.filter(
+    const recentCandidates = candidates?.filter(
       (c) => new Date(c.created_at) >= sevenDaysAgo
-    ).length ?? 0;
+    )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 10) ?? [];
 
     return new Response(
-      JSON.stringify({ total, statusRatio, topPositions, recentCount }),
+      JSON.stringify({ total, statusRatio, topPositions, recentCandidates }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err: unknown) {

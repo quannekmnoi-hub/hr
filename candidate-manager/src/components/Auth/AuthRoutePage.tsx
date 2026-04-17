@@ -1,14 +1,39 @@
 import { useState } from 'react'
 import { Mail, Lock, Users, AlertCircle, CheckCircle } from 'lucide-react'
-import { useAuth } from '../../hooks/useAuth'
 
-export default function AuthPage() {
-  const [isLogin, setIsLogin] = useState(true)
+import type { AuthMode } from '../../lib/router'
+
+interface Props {
+  mode: AuthMode
+  nextPath: string | null
+  error: string | null
+  setError: (value: string | null) => void
+  login: (email: string, password: string) => Promise<boolean>
+  register: (email: string, password: string) => Promise<boolean>
+  onChangeMode: (mode: AuthMode) => void
+}
+
+export default function AuthRoutePage({
+  mode,
+  nextPath,
+  error,
+  setError,
+  login,
+  register,
+  onChangeMode,
+}: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
-  const { login, register, error, setError } = useAuth()
+  const isLogin = mode === 'login'
+
+  const switchMode = (nextMode: AuthMode) => {
+    if (nextMode === mode) return
+    setError(null)
+    setSuccess('')
+    onChangeMode(nextMode)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -21,17 +46,16 @@ export default function AuthPage() {
     } else {
       const ok = await register(email, password)
       if (ok) {
-        setSuccess('Đăng ký thành công! Hãy kiểm tra email.')
-        setIsLogin(true)
+        setSuccess('Đăng ký thành công. Kiểm tra email xác thực rồi chuyển sang tab đăng nhập.')
       }
     }
+
     setLoading(false)
   }
 
   return (
     <div className="auth-page">
       <div className="auth-card">
-        {/* Logo HR Core style */}
         <div className="auth-logo">
           <div className="auth-logo-icon" style={{ width: 64, height: 64, borderRadius: '50%' }}>
             <Users size={32} />
@@ -39,26 +63,29 @@ export default function AuthPage() {
         </div>
         <h1 style={{ fontSize: 28, color: 'var(--primary)', marginBottom: 8, fontWeight: 700 }}>HR Core</h1>
         <p style={{ color: 'var(--text-muted)', marginBottom: 32 }}>Recruitment Made Joyful</p>
+        {nextPath && (
+          <p style={{ color: 'var(--text-muted)', marginBottom: 20, fontSize: 13 }}>
+            Đăng nhập để tiếp tục tới <strong>{nextPath}</strong>
+          </p>
+        )}
 
-        {/* Tabs */}
         <div className="auth-tabs" role="tablist">
           <button
             className={`auth-tab ${isLogin ? 'active' : ''}`}
-            onClick={() => { setIsLogin(true); setError(null); setSuccess('') }}
+            onClick={() => switchMode('login')}
             type="button"
           >
             Login
           </button>
           <button
             className={`auth-tab ${!isLogin ? 'active' : ''}`}
-            onClick={() => { setIsLogin(false); setError(null); setSuccess('') }}
+            onClick={() => switchMode('register')}
             type="button"
           >
             Register
           </button>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} id="auth-form" style={{ textAlign: 'left' }}>
           {error && (
             <div className="auth-error">
@@ -84,7 +111,7 @@ export default function AuthPage() {
                 style={{ paddingLeft: 40 }}
                 placeholder="manager@hrcore.com"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={(e) => setEmail(e.target.value)}
                 required
               />
             </div>
@@ -93,9 +120,24 @@ export default function AuthPage() {
           <div className="input-group" style={{ marginBottom: 32 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <label className="input-label" htmlFor="auth-password" style={{ marginBottom: 0 }}>Password</label>
-              {isLogin && <a href="#" style={{ fontSize: 13, color: 'var(--info)', textDecoration: 'none', fontWeight: 600 }}>Forgot?</a>}
+              {isLogin && (
+                <button
+                  type="button"
+                  style={{
+                    fontSize: 13,
+                    color: 'var(--info)',
+                    textDecoration: 'none',
+                    fontWeight: 600,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Forgot?
+                </button>
+              )}
             </div>
-            
+
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: 14, top: 14, color: 'var(--text-muted)' }}>
                 <Lock size={16} />
@@ -107,7 +149,7 @@ export default function AuthPage() {
                 style={{ paddingLeft: 40 }}
                 placeholder="••••••••"
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={(e) => setPassword(e.target.value)}
                 required
                 minLength={6}
               />

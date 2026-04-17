@@ -39,7 +39,7 @@ function fuzzyScore(text: string, query: string): number {
 function applyFiltersAndSort(candidates: Candidate[], filter: FilterOptions): Candidate[] {
   const FUZZY_THRESHOLD = 0.4
 
-  let result = candidates.filter(c => {
+  const result = candidates.filter(c => {
     // Status filter
     if (filter.status && c.status !== filter.status) return false
 
@@ -117,7 +117,7 @@ export function useCandidates(userId: string) {
 
     try {
       // Algorithm 4: cursor-based - fetch with cursor
-      let query = supabase
+      const query = supabase
         .from('candidates')
         .select('*')
         .eq('user_id', userId)

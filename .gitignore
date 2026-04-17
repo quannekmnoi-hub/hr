@@ -22,3 +22,9 @@ Thumbs.db
 
 # Temp files
 read_pdf.py
+update2.txt
+
+# Local tooling artifacts
+candidate-manager/.agents/
+candidate-manager/skills/
+candidate-manager/skills-lock.json

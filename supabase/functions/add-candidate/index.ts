@@ -30,7 +30,22 @@ serve(async (req: Request) => {
     }
 
     const body = await req.json();
-    const { full_name, applied_position, resume_url, skills = [], notes = "" } = body;
+    const {
+      full_name,
+      applied_position,
+      resume_url,
+      skills = [],
+      notes = "",
+      email = null,
+      phone = null,
+      gender = null,
+      date_of_birth = null,
+      location = null,
+      linkedin_url = null,
+      portfolio_url = null,
+      ai_analysis = null,
+      status = "New",
+    } = body;
 
     // Validation
     const errors: string[] = [];
@@ -76,9 +91,17 @@ serve(async (req: Request) => {
         applied_position: applied_position.trim(),
         resume_url: resume_url || null,
         skills: Array.isArray(skills) ? skills : [],
+        email: email?.trim() || null,
+        phone: phone?.trim() || null,
+        gender: gender || null,
+        date_of_birth: date_of_birth || null,
+        location: location?.trim() || null,
+        linkedin_url: linkedin_url?.trim() || null,
+        portfolio_url: portfolio_url?.trim() || null,
         notes: notes?.trim() || null,
+        ai_analysis,
         matching_score,
-        status: "New",
+        status,
       })
       .select()
       .single();
