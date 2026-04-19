@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Candidate, CandidateStatus, FilterOptions } from '../types'
+import { createId } from '../lib/id'
 
 const PAGE_SIZE = 9
 
@@ -249,7 +250,7 @@ export async function uploadFilesWithConcurrency(
   onProgress: (tasks: UploadTask[]) => void
 ): Promise<UploadTask[]> {
   const tasks: UploadTask[] = files.map(file => ({
-    id: crypto.randomUUID(),
+    id: createId(),
     file,
     progress: 0,
     status: 'pending',

@@ -8,6 +8,7 @@ import { analyzeJD, extractTextFromFile } from '../../lib/ai'
 import type { User } from '@supabase/supabase-js'
 import { useTasks } from '../../contexts/TaskContext'
 import { uploadFilesWithConcurrency, type UploadTask } from '../../hooks/useCandidates'
+import { createId } from '../../lib/id'
 
 interface Props {
   user: User
@@ -47,13 +48,13 @@ export default function PostJobModal({ user, onClose }: Props) {
       setError('Vui lòng nhập tên vị trí tuyển dụng'); return
     }
     if (!jdFile) {
-      setError('Vui lòng upload file Job Description để AI phân tích'); return
+      setError('Vui lòng upload file Job Description để OpenAI phân tích'); return
     }
 
     // Đóng form ngay lập tức & đưa vào background task
     onClose()
 
-    const taskId = crypto.randomUUID()
+    const taskId = createId()
     addTask(taskId, `Đăng tin: ${title}`, jdFile.name)
 
     try {
@@ -82,8 +83,8 @@ export default function PostJobModal({ user, onClose }: Props) {
         throw new Error('Không thể đọc nội dung file. Vui lòng thử file khác có chứa văn bản hoạch hình ảnh.')
       }
 
-      // 3. Analyze text/image with AI
-      updateTask(taskId, { progress: 40, subtitle: 'AI đang phân tích Job Description...' })
+      // 3. Analyze text/image with OpenAI
+      updateTask(taskId, { progress: 40, subtitle: 'OpenAI đang phân tích Job Description...' })
       const requirements = await analyzeJD({
         title: title.trim(),
         description: fileText,
@@ -91,7 +92,7 @@ export default function PostJobModal({ user, onClose }: Props) {
       })
 
       if (!requirements) {
-        throw new Error('AI không trả về dữ liệu. Kiểm tra AI server tại port 8045.')
+        throw new Error('OpenAI không trả về dữ liệu. Kiểm tra OpenAI server tại port 8045.')
       }
 
       // 4. Lưu database
@@ -112,7 +113,7 @@ export default function PostJobModal({ user, onClose }: Props) {
         },
         ai_summary: requirements.sub_domain
           ? `${requirements.domain} — ${requirements.sub_domain}`
-          : requirements.domain || 'Analyzed by AI Engine v2.0',
+          : requirements.domain || 'Analyzed by OpenAI Engine v2.0',
         jd_url,
         status: 'Open',
       }
@@ -149,7 +150,7 @@ export default function PostJobModal({ user, onClose }: Props) {
             <div>
               <h2 className="modal-title">Đăng tin tuyển dụng</h2>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                AI Engine v2.0 sẽ tự động phân tích yêu cầu từ file JD
+                OpenAI Engine v2.0 sẽ tự động phân tích yêu cầu từ file JD
               </div>
             </div>
           </div>
@@ -266,7 +267,7 @@ export default function PostJobModal({ user, onClose }: Props) {
               </div>
             </div>
 
-            {/* AI Info Banner */}
+            {/* OpenAI Info Banner */}
             {jdFile && (
               <div style={{
                 marginTop: 16, padding: '12px 16px', borderRadius: 12,
@@ -275,7 +276,7 @@ export default function PostJobModal({ user, onClose }: Props) {
               }}>
                 <Sparkles size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />
                 <div style={{ fontSize: 13, color: 'var(--primary)' }}>
-                  <strong>Task sẽ chạy ngầm:</strong> Bạn có thể đóng cửa sổ sau khi bấm Submit, AI sẽ tiếp tục xử lý và lưu kết quả.
+                  <strong>Task sẽ chạy ngầm:</strong> Bạn có thể đóng cửa sổ sau khi bấm Submit, OpenAI sẽ tiếp tục xử lý và lưu kết quả.
                 </div>
               </div>
             )}
@@ -299,3 +300,4 @@ export default function PostJobModal({ user, onClose }: Props) {
     </div>
   )
 }
+

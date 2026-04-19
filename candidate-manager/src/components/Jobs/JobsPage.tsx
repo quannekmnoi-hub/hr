@@ -59,7 +59,7 @@ export default function JobsPage({ onPostJob, onViewDetail }: Props) {
         <div>
            <div className="realtime-dot">● ACTIVE LISTINGS</div>
            <h1 className="page-title">Job Openings</h1>
-           <p className="page-subtitle">Manage open positions and view AI extracted requirements.</p>
+           <p className="page-subtitle">Manage open positions and view OpenAI extracted requirements.</p>
         </div>
         <button className="btn btn-primary" onClick={onPostJob} id="post-job-btn">
           <Plus size={18} /> Post New Job
@@ -96,7 +96,7 @@ export default function JobsPage({ onPostJob, onViewDetail }: Props) {
             <tr>
               <th>Position Title</th>
               <th>Status</th>
-              <th>AI Extracted Skills</th>
+              <th>OpenAI Extracted Skills</th>
               <th>Date Posted</th>
               <th>Actions</th>
             </tr>
@@ -170,3 +170,4 @@ export default function JobsPage({ onPostJob, onViewDetail }: Props) {
     </>
   )
 }
+

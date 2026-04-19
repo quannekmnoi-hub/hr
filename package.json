@@ -1,0 +1,11 @@
+{
+  "name": "hr-root-launcher",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Root launcher for Pterodactyl",
+  "scripts": {
+    "postinstall": "npm --prefix ./candidate-manager install",
+    "start": "node index.js",
+    "build": "node index.js --build"
+  }
+}

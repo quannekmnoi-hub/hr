@@ -1,4 +1,4 @@
-// AI Engine v2.0 — OpenAI-compatible local API
+// OpenAI Engine v2.0 — OpenAI-compatible local API
 // Replaces legacy Gemini REST direct call
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -65,7 +65,7 @@ export async function extractTextFromFile(file: File): Promise<ExtractedData> {
     }
   }
 
-  // Ảnh — trả về base64 để AI sử dụng vision
+  // Ảnh — trả về base64 để OpenAI sử dụng vision
   if (type.startsWith('image/') || name.match(/\.(png|jpg|jpeg|webp)$/i)) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -76,29 +76,158 @@ export async function extractTextFromFile(file: File): Promise<ExtractedData> {
   }
 
   // Mọi định dạng khác (Text, CSV, Markdown, XML, .doc cũ, file custom...):
-  // Fallback đọc dưới dạng raw text. AI sẽ tự cố gắng phân tích nội dung được trích xuất.
+  // Fallback đọc dưới dạng raw text. OpenAI sẽ tự cố gắng phân tích nội dung được trích xuất.
   try {
     const textContext = await file.text()
-    // Nếu text quá vô nghĩa (binary quá nhiều) thì AI cũng sẽ cố đọc các keyword ascii
+    // Nếu text quá vô nghĩa (binary quá nhiều) thì OpenAI cũng sẽ cố đọc các keyword ascii
     return { text: textContext }
   } catch {
     return { text: `[Không thể đọc định dạng văn bản raw từ file: ${file.name}]` }
   }
 }
 
-const AI_BASE_URL = "http://127.0.0.1:8045/v1"
-const AI_API_KEY = "sk-0843d20d2aa444b0a30d3523eb34a96b"
-const AI_MODEL = "gemini-3.1-pro-high"
+const OPENAI_BASE_URL = (import.meta.env.VITE_OPENAI_BASE_URL as string) || "http://mbasic8.pikamc.vn:25246/v1"
+const OPENAI_API_KEY = (import.meta.env.VITE_OPENAI_API_KEY as string) || ""
+const OPENAI_MODEL = (import.meta.env.VITE_OPENAI_MODEL as string) || "ag/gemini-3.1-pro-high"
+
+function maskApiKey(key: string): string {
+  if (!key) return '(empty)'
+  if (key.length <= 10) return `${key.slice(0, 2)}***`
+  return `${key.slice(0, 6)}...${key.slice(-4)}`
+}
+
+function snippet(text: string, max = 800): string {
+  const normalized = (text || '').replace(/\s+/g, ' ').trim()
+  if (normalized.length <= max) return normalized
+  return `${normalized.slice(0, max)}...`
+}
+
+function stripCodeFence(text: string): string {
+  return text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim()
+}
+
+function extractDataPayloadLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('data:'))
+    .map((line) => line.slice(5).trim())
+    .filter((payload) => payload && payload !== '[DONE]')
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const source = text || ''
+  const start = source.indexOf('{')
+  if (start < 0) return null
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let i = start; i < source.length; i++) {
+    const ch = source[i]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (ch === '\\') {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      continue
+    }
+    if (inString) continue
+
+    if (ch === '{') depth++
+    if (ch === '}') {
+      depth--
+      if (depth === 0) return source.slice(start, i + 1)
+    }
+  }
+
+  return null
+}
+
+function parseEnvelopeResponse(rawText: string): any {
+  try {
+    return JSON.parse(rawText)
+  } catch {
+    const payloadLines = extractDataPayloadLines(rawText)
+    if (!payloadLines.length) throw new Error(`Invalid response envelope: ${snippet(rawText)}`)
+
+    const events = payloadLines.map((payload) => {
+      try {
+        return JSON.parse(payload)
+      } catch {
+        return payload
+      }
+    })
+
+    const chunkText = events
+      .map((event) => {
+        if (!event || typeof event !== 'object') return ''
+        return event?.choices?.[0]?.delta?.content ?? event?.choices?.[0]?.message?.content ?? ''
+      })
+      .filter(Boolean)
+      .join('')
+
+    if (chunkText) {
+      return { choices: [{ message: { content: chunkText } }] }
+    }
+
+    const lastObject = [...events].reverse().find((event) => event && typeof event === 'object')
+    if (lastObject) return lastObject
+
+    throw new Error(`Could not parse SSE payload: ${snippet(rawText)}`)
+  }
+}
+
+function parseAnalysisContent(content: string): any {
+  let cleaned = stripCodeFence(content || '')
+
+  if (cleaned.startsWith('data:') || cleaned.includes('\ndata:')) {
+    const payloadLines = extractDataPayloadLines(cleaned)
+    const rebuiltText = payloadLines
+      .map((payload) => {
+        try {
+          const parsed = JSON.parse(payload)
+          if (parsed && typeof parsed === 'object') {
+            return parsed?.choices?.[0]?.delta?.content ?? parsed?.choices?.[0]?.message?.content ?? JSON.stringify(parsed)
+          }
+          return String(parsed)
+        } catch {
+          return payload
+        }
+      })
+      .join('')
+      .trim()
+    cleaned = stripCodeFence(rebuiltText || cleaned)
+  }
+
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    const extracted = extractFirstJsonObject(cleaned)
+    if (!extracted) throw new Error(`Model output is not valid JSON: ${snippet(cleaned)}`)
+    return JSON.parse(extracted)
+  }
+}
 
 // ─── SYSTEM PROMPT v2.0 ──────────────────────────────────────────────────────
 const SYSTEM_PROMPT_V2 = `================================================================================
-  SYSTEM PROMPT — AI PERSONNEL DATA EXTRACTION ENGINE v2.0
+  SYSTEM PROMPT — OpenAI PERSONNEL DATA EXTRACTION ENGINE v2.0
   Smart Job-CV 2-Way Matching | ATS Enterprise Grade
 ================================================================================
 
 IDENTITY & ROLE
 ---------------
-Bạn là một AI chuyên gia phân tích nhân sự cấp cao (Senior HR Data Intelligence Engine).
+Bạn là một OpenAI chuyên gia phân tích nhân sự cấp cao (Senior HR Data Intelligence Engine).
 Nhiệm vụ duy nhất: Đọc văn bản đầu vào (CV hoặc Job Description) và trích xuất toàn bộ
 thông tin có giá trị thành một JSON object hoàn chỉnh, chính xác, chuẩn hóa cao.
 
@@ -323,7 +452,13 @@ Bắt đầu phân tích văn bản được cung cấp ngay bây giờ.
 ================================================================================`
 
 // ─── CORE API CALL ───────────────────────────────────────────────────────────
-export async function callAI(userContent: string, imageBase64?: string): Promise<any> {
+export async function callOpenAI(userContent: string, imageBase64?: string): Promise<any> {
+  if (!OPENAI_API_KEY) {
+    throw new Error('Missing VITE_OPENAI_API_KEY in .env')
+  }
+
+  const endpoint = `${OPENAI_BASE_URL}/chat/completions`
+
   try {
     const messages: any[] = [
       { role: "system", content: SYSTEM_PROMPT_V2 }
@@ -341,37 +476,68 @@ export async function callAI(userContent: string, imageBase64?: string): Promise
       messages.push({ role: "user", content: userContent })
     }
 
-    const response = await fetch(`${AI_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${AI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: AI_MODEL,
-        messages: messages,
-        temperature: 0.1, // Rất thấp để đảm bảo JSON chính xác, nhất quán
-      }),
-    })
+    let response: Response
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: OPENAI_MODEL,
+          messages: messages,
+          temperature: 0.1,
+        }),
+      })
+    } catch (networkError) {
+      console.error("[OpenAI] Network error during fetch:", {
+        endpoint,
+        model: OPENAI_MODEL,
+        key: maskApiKey(OPENAI_API_KEY),
+        hasImage: Boolean(imageBase64),
+        promptLength: userContent?.length ?? 0,
+        isOnline: typeof navigator !== 'undefined' ? navigator.onLine : 'unknown',
+        error: networkError,
+      })
+      throw networkError
+    }
 
     if (!response.ok) {
       const errText = await response.text()
-      throw new Error(`AI API error ${response.status}: ${errText}`)
+      console.error("[OpenAI] HTTP error:", {
+        endpoint,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get('content-type'),
+        bodySnippet: snippet(errText),
+      })
+      throw new Error(`OpenAI API error ${response.status}: ${errText}`)
     }
 
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content || ""
+    const rawText = await response.text()
+    const envelope = parseEnvelopeResponse(rawText)
+    const content = envelope?.choices?.[0]?.message?.content || envelope?.choices?.[0]?.text || ""
 
-    // Parse JSON từ response — loại bỏ code fence nếu model vẫn trả về
-    const cleaned = content
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/\s*```$/i, "")
-      .trim()
+    if (!content || typeof content !== 'string') {
+      console.error("[OpenAI] Missing message content:", {
+        endpoint,
+        envelopeKeys: envelope && typeof envelope === 'object' ? Object.keys(envelope) : typeof envelope,
+        rawSnippet: snippet(rawText),
+      })
+      throw new Error("OpenAI response has no message content")
+    }
 
-    return sanitizeAnalysisResult(JSON.parse(cleaned))
+    return sanitizeAnalysisResult(parseAnalysisContent(content))
   } catch (error) {
-    console.error("AI call failed:", error)
+    console.error("OpenAI call failed:", {
+      endpoint,
+      model: OPENAI_MODEL,
+      key: maskApiKey(OPENAI_API_KEY),
+      hasImage: Boolean(imageBase64),
+      promptLength: userContent?.length ?? 0,
+      error,
+    })
     throw error
   }
 }
@@ -384,7 +550,7 @@ export async function analyzeCV(params: {
   resumeText?: string
   resumeImage?: string
 }): Promise<any> {
-  // Khi có resumeText (AI upload mode), ưu tiên phân tích toàn bộ từ nội dung CV
+  // Khi có resumeText (OpenAI upload mode), ưu tiên phân tích toàn bộ từ nội dung CV
   const hasFullCV = params.resumeText && params.resumeText.trim().length > 50
 
   const userContent = hasFullCV
@@ -416,7 +582,7 @@ ${params.notes ? `Ghi chú bổ sung/Nội dung CV:\n${params.notes}` : ''}
 Xác định type = "CV". Hãy suy luận và trích xuất đầy đủ thông tin theo schema đã định nghĩa.
 Nếu thông tin hạn chế, hãy suy luận hợp lý từ vị trí ứng tuyển và ghi rõ vào extraction_warnings.`
 
-  return callAI(userContent, params.resumeImage)
+  return callOpenAI(userContent, params.resumeImage)
 }
 
 // ─── JD ANALYSIS ─────────────────────────────────────────────────────────────
@@ -437,7 +603,7 @@ ${cleanedDesc || '[Trích xuất từ hình ảnh]'}
 
 Xác định type = "JOB". Trích xuất đầy đủ thông tin theo schema JSON.`
 
-  return callAI(userContent, params.jdImage)
+  return callOpenAI(userContent, params.jdImage)
 }
 
 // ─── SKILL EXTRACTOR HELPER ───────────────────────────────────────────────────
@@ -452,6 +618,9 @@ export function extractSimpleSkills(analysis: any): string[] {
 
 // ─── LEGACY COMPAT (giữ cho các nơi vẫn import askGemini) ───────────────────
 export async function askGemini(prompt: string): Promise<any> {
-  console.warn('[AI] askGemini() is deprecated. Use analyzeCV() or analyzeJD() instead.')
-  return callAI(prompt)
+  console.warn('[OpenAI] askGemini() is deprecated. Use analyzeCV() or analyzeJD() instead.')
+  return callOpenAI(prompt)
 }
+
+export const callAI = callOpenAI
+

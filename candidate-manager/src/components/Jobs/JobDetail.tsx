@@ -260,9 +260,9 @@ export default function JobDetail({ jobId, onBack, onViewCandidate }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 24, alignItems: 'start' }}>
         {/* LỚN TRÁI */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* AI Info */}
+          {/* OpenAI Info */}
           <div className="card" style={{ border: '1px solid var(--border)', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-            <SectionTitle icon={<Sparkles size={18} />} title="Yêu cầu từ AI" />
+            <SectionTitle icon={<Sparkles size={18} />} title="Yêu cầu từ OpenAI" />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
               {reqs.seniority_level && (
                 <div style={{ padding: '12px 14px', borderRadius: 10, background: '#ede9fe' }}>
@@ -390,3 +390,4 @@ export default function JobDetail({ jobId, onBack, onViewCandidate }: Props) {
     </>
   )
 }
+

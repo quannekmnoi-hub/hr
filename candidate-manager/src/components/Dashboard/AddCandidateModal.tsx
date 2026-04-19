@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase'
 import { uploadFilesWithConcurrency, type UploadTask } from '../../hooks/useCandidates'
 import { analyzeCV, extractSimpleSkills, extractTextFromFile } from '../../lib/ai'
 import { useTasks } from '../../contexts/TaskContext'
+import { createId } from '../../lib/id'
 
 interface Props {
   userId: string
@@ -47,6 +48,16 @@ function getErrorMessage(error: unknown): string {
   return typeof error === 'string' ? error : 'Có lỗi xảy ra'
 }
 
+function isEdgeFunctionTransportError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase()
+  return (
+    message.includes('failed to send a request to the edge function') ||
+    message.includes('failed to fetch') ||
+    message.includes('networkerror') ||
+    message.includes('cors')
+  )
+}
+
 export default function AddCandidateModal({ userId, onClose, onSuccess }: Props) {
   const { addTask, updateTask } = useTasks()
   const [mode, setMode] = useState<InputMode>('choose')
@@ -57,7 +68,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
   const [manualLoading, setManualLoading] = useState(false)
   const manualFileRef = useRef<HTMLInputElement>(null)
 
-  // ── AI mode state ──────────────────────────────────────────────────────────
+  // ── OpenAI mode state ──────────────────────────────────────────────────────────
   const [aiFile, setAiFile] = useState<File | null>(null)
   const aiFileRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -66,6 +77,79 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
 
   const set = (key: keyof ManualForm, value: string) =>
     setForm(f => ({ ...f, [key]: value }))
+
+  const calculateMatchingScore = useCallback(async (appliedPosition: string, skills: string[]): Promise<number> => {
+    if (!appliedPosition.trim() || !Array.isArray(skills) || skills.length === 0) return 0
+
+    const { data: jobReq, error } = await supabase
+      .from('job_requirements')
+      .select('required_skills')
+      .ilike('position_name', `%${appliedPosition.trim()}%`)
+      .maybeSingle()
+
+    if (error) {
+      console.warn('Matching score lookup failed:', error)
+      return 0
+    }
+
+    const requiredSkills = Array.isArray(jobReq?.required_skills) ? jobReq.required_skills : []
+    if (requiredSkills.length === 0) return 0
+
+    const candidateSkills = skills.map((s) => String(s).toLowerCase())
+    const matched = requiredSkills.filter((required) =>
+      candidateSkills.some((candidate) =>
+        candidate.includes(String(required).toLowerCase()) ||
+        String(required).toLowerCase().includes(candidate),
+      ),
+    ).length
+
+    return Math.round((matched / requiredSkills.length) * 100)
+  }, [])
+
+  const insertCandidateDirectly = useCallback(async (payload: Record<string, unknown>) => {
+    const appliedPosition = String(payload.applied_position || '').trim()
+    const skills = Array.isArray(payload.skills) ? (payload.skills as string[]) : []
+    const matching_score = await calculateMatchingScore(appliedPosition, skills)
+
+    const { error } = await supabase
+      .from('candidates')
+      .insert({
+        user_id: userId,
+        full_name: String(payload.full_name || '').trim(),
+        email: payload.email ? String(payload.email).trim() : null,
+        phone: payload.phone ? String(payload.phone).trim() : null,
+        gender: payload.gender ?? null,
+        date_of_birth: payload.date_of_birth ?? null,
+        location: payload.location ? String(payload.location).trim() : null,
+        linkedin_url: payload.linkedin_url ? String(payload.linkedin_url).trim() : null,
+        portfolio_url: payload.portfolio_url ? String(payload.portfolio_url).trim() : null,
+        applied_position: appliedPosition,
+        resume_url: payload.resume_url ?? null,
+        notes: payload.notes ? String(payload.notes).trim() : null,
+        status: payload.status || 'New',
+        skills,
+        ai_analysis: payload.ai_analysis ?? null,
+        matching_score,
+      })
+
+    if (error) throw error
+  }, [calculateMatchingScore, userId])
+
+  const insertCandidateWithFallback = useCallback(async (payload: Record<string, unknown>) => {
+    const { error } = await supabase.functions.invoke('add-candidate', {
+      body: payload,
+    })
+
+    if (!error) return
+
+    if (isEdgeFunctionTransportError(error)) {
+      console.warn('Edge function unavailable. Falling back to direct DB insert.', error)
+      await insertCandidateDirectly(payload)
+      return
+    }
+
+    throw error
+  }, [insertCandidateDirectly])
 
   // ─── File handler: manual optional CV ─────────────────────────────────────
   const handleManualFiles = useCallback((files: File[]) => {
@@ -79,7 +163,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
     uploadFilesWithConcurrency(valid, userId, 1, setManualUploadTasks)
   }, [userId])
 
-  // ─── File handler: AI CV upload ────────────────────────────────────────────
+  // ─── File handler: OpenAI CV upload ────────────────────────────────────────────
   const handleAiFiles = useCallback((files: File[]) => {
     const valid = files.find(f =>
       ['application/pdf', 'application/msword',
@@ -92,7 +176,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
     setAiFile(valid)
   }, [])
 
-  // ─── SUBMIT MANUAL — lưu thẳng, không AI (Có Loading bình thường) ─────────
+  // ─── SUBMIT MANUAL — lưu thẳng, không OpenAI (Có Loading bình thường) ─────────
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(null)
 
@@ -130,11 +214,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
       }
       console.log('Candidate Manual Insert Payload:', payload)
 
-      const { error: insertError } = await supabase.functions.invoke('add-candidate', {
-        body: payload,
-      })
-
-      if (insertError) throw insertError
+      await insertCandidateWithFallback(payload)
       onSuccess(); onClose()
     } catch (err: unknown) {
       console.error('Candidate Manual Insert Error:', err)
@@ -144,20 +224,23 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
     }
   }
 
-  // ─── SUBMIT AI — CHẠY NGẦM ──────────────────────────────────────────────────
+  // ─── SUBMIT OpenAI — CHẠY NGẦM ──────────────────────────────────────────────────
   const handleAiSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(null)
 
     if (!aiFile) {
-      setError('Vui lòng upload file CV để AI phân tích'); return
+      setError('Vui lòng upload file CV để OpenAI phân tích'); return
     }
 
     const fileToProcess = aiFile
+    let uploadedResumeUrl: string | null = null
+    let extractedTextLength = 0
+    let extractedHasImage = false
 
     // Đóng form ngay lập tức & đưa vào background task
     onClose()
     
-    const taskId = crypto.randomUUID()
+    const taskId = createId()
     addTask(taskId, `Phân tích CV: ${fileToProcess.name}`, 'Đang chuẩn bị upload...')
 
     try {
@@ -174,20 +257,23 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
         })
       })
       const resume_url = uploadResult.find(t => t.status === 'done')?.url ?? null
+      uploadedResumeUrl = resume_url
 
       // Step 2: Extract text từ file
       updateTask(taskId, { progress: 30, subtitle: 'Đang trích xuất văn bản từ CV...' })
       const extracted = await extractTextFromFile(fileToProcess)
+      extractedTextLength = extracted?.text?.length ?? 0
+      extractedHasImage = Boolean(extracted?.image)
 
-      // Step 3: AI phân tích
-      updateTask(taskId, { progress: 50, subtitle: 'AI đang phân tích kỹ năng và kinh nghiệm...' })
+      // Step 3: OpenAI phân tích
+      updateTask(taskId, { progress: 50, subtitle: 'OpenAI đang phân tích kỹ năng và kinh nghiệm...' })
       const ai_analysis = await analyzeCV({
         resumeText: extracted.text,
         resumeImage: extracted.image,
       })
 
       if (!ai_analysis) {
-        throw new Error('AI không trả về dữ liệu. Kiểm tra AI server tại port 8045.')
+        throw new Error('OpenAI không trả về dữ liệu. Kiểm tra OpenAI server tại port 8045.')
       }
 
       // Step 4: Lưu vào DB
@@ -218,13 +304,9 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
         ai_analysis,
         matching_score: 0,
       }
-      console.log('Candidate AI Insert Payload:', payload)
+      console.log('Candidate OpenAI Insert Payload:', payload)
 
-      const { error: insertError } = await supabase.functions.invoke('add-candidate', {
-        body: payload,
-      })
-
-      if (insertError) throw insertError
+      await insertCandidateWithFallback(payload)
 
       updateTask(taskId, { progress: 100, status: 'success', subtitle: 'Hoàn tất phân tích CV' })
       onSuccess()
@@ -232,7 +314,23 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
       
       // setTimeout refresh the background task badge if needed
     } catch (err: unknown) {
-      console.error('Candidate AI Insert Error:', err)
+      console.error('Candidate OpenAI Insert Error (full):', {
+        error: err,
+        name: err instanceof Error ? err.name : undefined,
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        context: {
+          taskId,
+          userId,
+          mode,
+          fileName: fileToProcess.name,
+          fileType: fileToProcess.type,
+          fileSize: fileToProcess.size,
+          uploadedResumeUrl,
+          extractedTextLength,
+          extractedHasImage,
+        },
+      })
       const errorMsg = getErrorMessage(err)
       updateTask(taskId, { status: 'error', error: errorMsg, subtitle: 'Lỗi khi phân tích/lưu' })
     }
@@ -252,7 +350,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
               <h2 className="modal-title" style={{ fontSize: 22 }}>New Candidate Profile</h2>
               {mode !== 'choose' && (
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {mode === 'manual' ? '✏️ Nhập thủ công' : '🤖 AI phân tích CV ngầm'}
+                  {mode === 'manual' ? '✏️ Nhập thủ công' : '🤖 OpenAI phân tích CV ngầm'}
                   <button
                     type="button"
                     onClick={() => { setMode('choose'); setError(null) }}
@@ -317,7 +415,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
                 </div>
               </button>
 
-              {/* Option 2: AI Upload */}
+              {/* Option 2: OpenAI Upload */}
               <button
                 type="button"
                 onClick={() => setMode('ai')}
@@ -347,10 +445,10 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
                 </div>
                 <div>
                   <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6, color: 'var(--text)' }}>
-                    AI phân tích CV
+                    OpenAI phân tích CV
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Chỉ cần upload file CV — AI sẽ chạy ngầm và tự điền toàn bộ thông tin.
+                    Chỉ cần upload file CV — OpenAI sẽ chạy ngầm và tự điền toàn bộ thông tin.
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--primary)', fontSize: 13, fontWeight: 700, marginTop: 4 }}>
@@ -477,7 +575,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
           </form>
         )}
 
-        {/* ════ AI UPLOAD MODE ══════════════════════════════════════════════════ */}
+        {/* ════ OpenAI UPLOAD MODE ══════════════════════════════════════════════════ */}
         {mode === 'ai' && (
           <form onSubmit={handleAiSubmit}>
             <div className="modal-body">
@@ -488,7 +586,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
               )}
 
               <p style={{ color: 'var(--text-muted)', marginBottom: 24, fontSize: 14 }}>
-                Upload file CV — <strong>AI Engine v2.0</strong> sẽ chạy ngầm và tự trích xuất toàn bộ thông tin:
+                Upload file CV — <strong>OpenAI Engine v2.0</strong> sẽ chạy ngầm và tự trích xuất toàn bộ thông tin:
                 tên, liên hệ, kỹ năng, kinh nghiệm, học vấn. Tiến trình được hiển thị ở góc thông báo.
               </p>
 
@@ -554,7 +652,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
                 />
               </div>
 
-              {/* What AI will extract */}
+              {/* What OpenAI will extract */}
               {aiFile && (
                 <div style={{
                   padding: '14px 16px', borderRadius: 12,
@@ -564,7 +662,7 @@ export default function AddCandidateModal({ userId, onClose, onSuccess }: Props)
                 }}>
                   <Sparkles size={18} style={{ color: '#7c3aed', flexShrink: 0, marginTop: 2 }} />
                   <div style={{ fontSize: 13, color: '#4c1d95' }}>
-                    <strong>Task sẽ chạy ngầm:</strong> Bạn có thể đóng cửa sổ sau khi bấm Submit. AI sẽ tải file và tiến hành xử lý.
+                    <strong>Task sẽ chạy ngầm:</strong> Bạn có thể đóng cửa sổ sau khi bấm Submit. OpenAI sẽ tải file và tiến hành xử lý.
                   </div>
                 </div>
               )}
@@ -663,3 +761,4 @@ function ManualUploadZone({
     </div>
   )
 }
+

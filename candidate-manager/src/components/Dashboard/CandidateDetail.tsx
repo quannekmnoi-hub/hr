@@ -108,8 +108,8 @@ function ScoreCircle({ score }: { score: number }) {
 }
 
 /**
- * Tính AI Confidence Score khắt khe hơn dựa trên:
- * - Điểm AI gốc (confidence_score từ AI)
+ * Tính OpenAI Confidence Score khắt khe hơn dựa trên:
+ * - Điểm OpenAI gốc (confidence_score từ OpenAI)
  * - Số năm kinh nghiệm (càng ít, càng trừ điểm)
  * - Điểm hoàn thiện dữ liệu (data_quality)
  * 
@@ -122,7 +122,7 @@ function computeAdjustedConfidence(ai: any): { score: number; label: string; col
   const completeness: number = ai.data_quality?.completeness_score ?? 0.5
   const clarity: number = ai.data_quality?.clarity_score ?? 0.5
 
-  // Base từ AI model (max 60 điểm)
+  // Base từ OpenAI model (max 60 điểm)
   let base = raw * 60
 
   // Cộng điểm từ data quality (max 20 điểm)
@@ -315,12 +315,15 @@ export default function CandidateDetail({ candidateId, onBack }: Props) {
       else if (cEdu > 0) score += (cEdu / jEdu) * 20
     } else score += 20
 
+    // Không có skill nào khớp thì coi như chưa phù hợp cho job này
+    if (reqSkills.length > 0 && matchCount === 0) score = 0
+
     score = Math.round(score)
 
     return { ...j, score, reqSkills, matchCount }
   }).sort((a, b) => b.score - a.score)
 
-  const topMatch = jobMatches[0]
+  const topMatch = jobMatches.find((j) => j.score > 0) || null
 
   // Skill groups
   const skillGroups: Record<string, typeof skills> = {}
@@ -342,7 +345,7 @@ export default function CandidateDetail({ candidateId, onBack }: Props) {
           <span style={{ color: 'var(--text)', fontWeight: 700 }}>{candidate.full_name}</span>
           {isV2 && (
             <span style={{ fontSize: 10, background: 'var(--primary)', color: 'white', padding: '2px 8px', borderRadius: 99, fontWeight: 700 }}>
-              AI v2.0
+              OpenAI v2.0
             </span>
           )}
         </div>
@@ -392,7 +395,7 @@ export default function CandidateDetail({ candidateId, onBack }: Props) {
                 border: `1.5px solid ${experienceProfile.color}40`,
                 textAlign: 'center', minWidth: 180
               }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>AI ĐỘ TIN CẬY</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>ĐỘ TIN CẬY</div>
                 <div style={{ fontSize: 28, fontWeight: 900, color: experienceProfile.color, lineHeight: 1 }}>{experienceProfile.score}%</div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: experienceProfile.color, marginTop: 4 }}>{experienceProfile.label}</div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
@@ -457,10 +460,10 @@ export default function CandidateDetail({ candidateId, onBack }: Props) {
         {/* ── CỘT TRÁI ─────────────────────────────────────────── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
-          {/* AI Profile Summary */}
+          {/* OpenAI Profile Summary */}
           {isV2 && (ai.sub_domain || ai.job_function) && (
             <div className="card ai-card">
-              <SectionTitle icon={<Sparkles size={18} />} title="Phân tích AI" />
+              <SectionTitle icon={<Sparkles size={18} />} title="Phân tích OpenAI" />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 {ai.sub_domain && (
                   <div style={{ padding: '12px 14px', borderRadius: 10, background: '#ede9fe' }}>
@@ -885,32 +888,6 @@ export default function CandidateDetail({ candidateId, onBack }: Props) {
             </div>
           </div>
 
-          {/* Data Quality */}
-          {isV2 && ai.data_quality && (
-            <div className="card" style={{ background: 'var(--input-bg)', border: '1px solid var(--border)' }}>
-              <h4 style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-muted)', marginBottom: 14, letterSpacing: '0.07em' }}>CHẤT LƯỢNG DỮ LIỆU AI</h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Độ đầy đủ thông tin</div>
-                  <RatingBar value={Math.round((ai.data_quality.completeness_score || 0) * 10)} />
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Độ rõ ràng văn bản</div>
-                  <RatingBar value={Math.round((ai.data_quality.clarity_score || 0) * 10)} />
-                </div>
-              </div>
-              {ai.data_quality.extraction_warnings?.length > 0 && (
-                <div style={{ marginTop: 10, fontSize: 11, color: '#f59e0b', lineHeight: 1.5 }}>
-                  ⚠️ {ai.data_quality.extraction_warnings[0]}
-                </div>
-              )}
-              {ai.data_quality.missing_fields?.length > 0 && (
-                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
-                  Thiếu: {ai.data_quality.missing_fields.join(', ')}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </>
@@ -941,3 +918,4 @@ function InfoRow({ icon, label, children }: {
     </div>
   )
 }
+

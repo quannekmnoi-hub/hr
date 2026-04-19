@@ -553,7 +553,7 @@ h1, h2, h3, h4, h5 {
   position: relative;
   overflow: hidden;
 }
-/* Abstract shape inside AI card */
+/* Abstract shape inside OpenAI card */
 .ai-card::before {
   content: "";
   position: absolute;
@@ -698,3 +698,4 @@ h1, h2, h3, h4, h5 {
 
 /* Shadow sm */
 :root { --shadow-sm: 0 2px 8px rgba(0,0,0,0.08); }
+

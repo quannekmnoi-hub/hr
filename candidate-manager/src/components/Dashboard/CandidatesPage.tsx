@@ -5,7 +5,7 @@ import { useAnalytics } from '../../hooks/useAnalytics'
 import { useRealtime } from '../../hooks/useRealtime'
 import {
   Search, Loader2, FileText, User as UserIcon,
-  Users, Briefcase, TrendingUp, CheckCircle2, Clock, XCircle
+  Users, Briefcase, TrendingUp, CheckCircle2, Clock, XCircle, Trash2
 } from 'lucide-react'
 
 interface Props {
@@ -36,7 +36,7 @@ function MiniBar({ value, max, color }: { value: number; max: number; color: str
 }
 
 export default function CandidatesPage({ user, onViewDetail, onAddCandidate }: Props) {
-  const { candidates, loading, hasMore, filter, setFilter, fetchCandidates, loadMore } = useCandidates(user.id)
+  const { candidates, loading, hasMore, filter, setFilter, fetchCandidates, loadMore, deleteCandidate } = useCandidates(user.id)
   const { analytics, loading: analyticsLoading, fetchAnalytics } = useAnalytics()
 
   const handleRefresh = useCallback(() => { fetchCandidates(); fetchAnalytics() }, [fetchCandidates, fetchAnalytics])
@@ -314,7 +314,7 @@ export default function CandidatesPage({ user, onViewDetail, onAddCandidate }: P
           <option value="Rejected">Loại</option>
         </select>
         <select className="input" style={{ width: 220, borderRadius: 'var(--radius-full)' }} value={filter.sortBy} onChange={e => setF('sortBy', e.target.value)}>
-          <option value="matching_score">Sắp xếp: Điểm AI (Cao-Thấp)</option>
+          <option value="matching_score">Sắp xếp: Điểm OpenAI (Cao-Thấp)</option>
           <option value="created_at">Sắp xếp: Mới nhất</option>
           <option value="full_name">Sắp xếp: Tên (A-Z)</option>
         </select>
@@ -327,20 +327,22 @@ export default function CandidatesPage({ user, onViewDetail, onAddCandidate }: P
             <tr>
               <th>Họ tên</th>
               <th>Vị trí ứng tuyển</th>
-              <th>Điểm phù hợp</th>
+              <th>Kinh nghiệm</th>
               <th>Trạng thái</th>
               <th>Ngày nộp</th>
               <th>Tài liệu</th>
+              <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {candidates.map(c => {
-              const score = c.matching_score ?? 0
-              let scoreColor = '#a855f7'
-              let scoreLabel = 'Trung bình'
-              if (score >= 90) { scoreColor = '#FF1F8E'; scoreLabel = 'Xuất sắc' }
-              else if (score >= 80) { scoreColor = '#3b82f6'; scoreLabel = 'Tốt' }
-              else if (score < 50) { scoreColor = '#ef4444'; scoreLabel = 'Yếu' }
+              const ai = c.ai_analysis && typeof c.ai_analysis === 'object' ? c.ai_analysis as Record<string, unknown> : null
+              const expYears =
+                typeof ai?.relevant_experience_years === 'number'
+                  ? ai.relevant_experience_years
+                  : typeof ai?.experience_years === 'number'
+                    ? ai.experience_years
+                    : null
 
               return (
                 <tr key={c.id} className="hoverable" onClick={() => onViewDetail(c.id)}>
@@ -357,13 +359,9 @@ export default function CandidatesPage({ user, onViewDetail, onAddCandidate }: P
                   </td>
                   <td><div style={{ fontWeight: 500 }}>{c.applied_position}</div></td>
                   <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 56, height: 6, background: 'var(--input-bg)', borderRadius: 3, overflow: 'hidden' }}>
-                        <div style={{ width: `${score}%`, height: '100%', background: scoreColor }} />
-                      </div>
-                      <div style={{ fontWeight: 700, color: scoreColor, minWidth: 36 }}>{score}%</div>
+                    <div style={{ fontWeight: 700, color: 'var(--text)' }}>
+                      {typeof expYears === 'number' ? `${expYears} năm` : 'Chưa có'}
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginTop: 3 }}>{scoreLabel}</div>
                   </td>
                   <td><span className={`badge badge-${c.status.toLowerCase()}`}>{c.status.toUpperCase()}</span></td>
                   <td><div style={{ fontSize: 13 }}>{new Date(c.created_at).toLocaleDateString('vi-VN')}</div></td>
@@ -377,13 +375,27 @@ export default function CandidatesPage({ user, onViewDetail, onAddCandidate }: P
                       <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>N/A</span>
                     )}
                   </td>
+                  <td>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (!confirm(`Xóa ứng viên "${c.full_name}"?`)) return
+                        await deleteCandidate(c.id)
+                        window.dispatchEvent(new CustomEvent('candidates-updated'))
+                      }}
+                      style={{ color: '#ef4444' }}
+                    >
+                      <Trash2 size={14} /> Xóa
+                    </button>
+                  </td>
                 </tr>
               )
             })}
 
             {candidates.length === 0 && !loading && (
               <tr>
-                <td colSpan={6} style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
+                <td colSpan={7} style={{ textAlign: 'center', padding: 48, color: 'var(--text-muted)' }}>
                   <Users size={32} style={{ opacity: 0.2, marginBottom: 10 }} />
                   <div>Không có ứng viên nào.</div>
                 </td>
@@ -403,3 +415,4 @@ export default function CandidatesPage({ user, onViewDetail, onAddCandidate }: P
     </>
   )
 }
+
